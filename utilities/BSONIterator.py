@@ -9,8 +9,8 @@ import io
 
 class BSONIterator(Iterator):
     def __init__(self, bson_file, images_df, offsets_df, num_class,
-                 image_data_generator, target_size=(180, 180), with_labels=True,
-                 batch_size=32, shuffle=False, seed=None):
+                 image_data_generator, lock, target_size=(180, 180), 
+                 with_labels=True, batch_size=32, shuffle=False, seed=None):
 
         self.file = bson_file
         self.images_df = images_df
@@ -25,6 +25,7 @@ class BSONIterator(Iterator):
         print("Found %d images belonging to %d classes." % (self.samples, self.num_class))
 
         super(BSONIterator, self).__init__(self.samples, batch_size, shuffle, seed)
+        self.lock = lock
 
     def _get_batches_of_transformed_samples(self, index_array):
         batch_x = np.zeros((len(index_array),) + self.image_shape, dtype=K.floatx())
@@ -43,12 +44,14 @@ class BSONIterator(Iterator):
                 item_data = self.file.read(offset_row["length"])
 
             # Grab the image from the product.
-            item = bson.BSON(item_data).decode()
+            item = bson.BSON.decode(item_data)
             img_idx = image_row["img_idx"]
             bson_img = item["imgs"][img_idx]["picture"]
 
-            # Preprocess the image.
+            # Load the image.
             img = load_img(io.BytesIO(bson_img), target_size=self.target_size)
+
+            # Preprocess the image.
             x = img_to_array(img)
             x = self.image_data_generator.random_transform(x)
             x = self.image_data_generator.standardize(x)
