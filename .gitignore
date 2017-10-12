@@ -1,0 +1,16 @@
+inputs/*
+logs/*
+outputs/*
+weights/*
+utilities/__init__.py
+__pycache__/
+.vscode/
+.ipynb_checkpoints/
+*.pyc
+
+# exception to the rule
+!inputs/.gitkeep 
+!logs/.gitkeep 
+!outputs/.gitkeep 
+!weights/.gitkeep
+# !inputs/train_bbox.csv
