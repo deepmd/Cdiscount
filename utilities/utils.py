@@ -1,5 +1,3 @@
-from keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
-import tensorflow as tf
 import pandas as pd
 import numpy as np
 import io
@@ -11,10 +9,6 @@ import random as rn
 import tensorflow as tf
 import keras.backend as K
 import datetime
-import cv2
-import queue
-import threading
-import cv2
 
 
 # Create dictionaries for quick lookup of category_id to category_idx mapping.
@@ -27,7 +21,6 @@ def make_category_tables(categories_df):
         cat2idx[category_id] = category_idx
         idx2cat[category_idx] = category_id
     return cat2idx, idx2cat
-
 
 def make_val_set(categories_df, train_offsets_df, split_percentage=0.2, drop_percentage=0.):
     # Create a random train/validation split
@@ -76,13 +69,9 @@ def make_val_set(categories_df, train_offsets_df, split_percentage=0.2, drop_per
     val_df = pd.DataFrame(val_list, columns=columns)
     return train_df, val_df
 
-
-
-
 def save_array(fname, arr):
     c=bcolz.carray(arr, rootdir=fname, mode='w')
     c.flush()
-
 
 def load_array(fname):
     return bcolz.open(fname)[:]
@@ -106,77 +95,3 @@ def set_results_reproducible():
 
     sess = tf.Session(graph=tf.get_default_graph(), config=session_conf)
     K.set_session(sess)
-    
-    return None
-
-def make_multi_crop_from(im, input_size, crop_size):
-    cordinates = [((0, 0), (crop_size-1, crop_size-1)),
-        ((input_size-crop_size, 0), (input_size-1, crop_size-1)),
-        ((0, input_size-crop_size), (crop_size-1, input_size-1)),
-        ((input_size-crop_size, input_size-crop_size), (input_size-1, input_size-1))]    
-    flipped_im = cv2.flip(im, 1)
-    mc = []
-    for c1, c2 in cordinates:
-        x1, y1 = c1
-        x2, y2 = c2
-        mc.append(im[y1:y2+1, x1:x2+1])
-        mc.append(flipped_im[y1:y2+1, x1:x2+1])
-    im = cv2.resize(im, (crop_size, crop_size), interpolation=cv2.INTER_LINEAR)
-    flipped_im = cv2.resize(flipped_im, (crop_size, crop_size), interpolation=cv2.INTER_LINEAR)
-    mc.append(im)
-    mc.append(flipped_im)
-    return np.array(mc)
-
-
-def data_loader(q, data, input_size, crop_size, num_crop):
-    test_datagen = ImageDataGenerator() #ImageDataGenerator(preprocessing_function=preprocess_input)
-    for d in data:
-        #product_id = d["_id"]
-        num_imgs = len(d["imgs"])
-
-        x_batch = np.zeros((num_imgs*num_crop, crop_size, crop_size, 3), dtype=K.floatx())        
-        for i in range(num_imgs):
-            bson_img = d["imgs"][i]["picture"]
-
-            # Load and preprocess the image.
-            img = load_img(io.BytesIO(bson_img), target_size=(input_size, input_size))
-            x = img_to_array(img)
-            x = test_datagen.random_transform(x)
-            x = test_datagen.standardize(x)
-            
-            mc = make_multi_crop_from(x, input_size, crop_size)            
-            for j, crop_im in enumerate(mc):            
-                # Add the image to the batch.
-                x_batch[i*num_crop+j] = crop_im
-        q.put(x_batch)
-
-def predictor(q, graph, model, num_test_products, idx2cat, submission_df):
-    for i in tqdm(range(num_test_products)):
-        x_batch = q.get()
-        with graph.as_default():
-            prediction = model.predict_on_batch(x_batch)
-            avg_pred = prediction.mean(axis=0)
-            cat_idx = np.argmax(avg_pred)
-            submission_df.iloc[i]["category_id"] = idx2cat[cat_idx]
-
-def generate_submit(model, data, input_size, crop_size,  
-                    num_test_products, idx2cat, submission_df, q_size=10):
-
-    graph = tf.get_default_graph()
-        
-    q = queue.Queue(maxsize=q_size)
-    t1 = threading.Thread(target=data_loader, name='DataLoader',
-                          args=(q, data, input_size, crop_size, 10, ))
-    t2 = threading.Thread(target=predictor, name='Predictor', 
-                          args=(q, graph, model, num_test_products, idx2cat, submission_df, ))
-    print('Start predicting on samples...')
-    t1.start()
-    t2.start()
-    # Wait for both threads to finish
-    t1.join()
-    t2.join()
-
-    print("Generating submission file...")
-    submission_df.to_csv("outputs/my_submission.csv.gz", compression="gzip", index=False)
-    print("Done")
-
